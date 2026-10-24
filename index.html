@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MC 皮肤编辑器 · 3D 绘制</title>
+<style>
+  :root {
+    --bg: #17110d;
+    --panel: #241a13;
+    --card: #2f2218;
+    --line: #3f2f22;
+    --text: #f0e2cf;
+    --muted: #a8907a;
+    --accent: #e07b39;
+    --accent2: #f08a45;
+    --green: #7fd18b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: 1px; }
+  header .hint { color: var(--muted); font-size: 12px; }
+
+  main {
+    display: flex;
+    height: calc(100% - 52px);
+  }
+
+  /* ---------------- 工具栏 ---------------- */
+  aside.tools {
+    width: 220px;
+    flex: 0 0 220px;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    padding: 12px;
+    overflow-y: auto;
+  }
+  .group { margin-bottom: 16px; }
+  .group > .label {
+    font-size: 11px; color: var(--muted);
+    margin-bottom: 6px; letter-spacing: 1px;
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  button {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  button:hover { background: #3a2a1d; }
+  button.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 700;
+  }
+  button.wide { width: 100%; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  button.primary:hover { background: var(--accent2); }
+
+  .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tool-grid button { padding: 9px 6px; }
+
+  input[type="color"] {
+    width: 100%; height: 34px;
+    background: none; border: 1px solid var(--line);
+    border-radius: 8px; padding: 2px; cursor: pointer;
+  }
+  .palette { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-top: 8px; }
+  .swatch {
+    aspect-ratio: 1; border-radius: 4px; cursor: pointer;
+    border: 1px solid rgba(0,0,0,.4);
+  }
+  .swatch:hover { outline: 2px solid var(--accent); }
+
+  /* ---------------- 3D 视口 ---------------- */
+  section.stage {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+  }
+  #view {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+
+  /* ---------------- 右侧 ---------------- */
+  aside.side {
+    width: 268px;
+    flex: 0 0 268px;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    padding: 12px;
+    overflow-y: auto;
+  }
+  #flat {
+    width: 244px; height: 244px;
+    image-rendering: pixelated;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #1b1510;
+    display: block;
+    margin: 0 auto 10px;
+  }
+  .kv { font-size: 12px; color: var(--muted); line-height: 1.9; }
+  .kv b { color: var(--text); font-weight: 600; }
+  .tip {
+    font-size: 12px; color: var(--muted);
+    background: var(--card);
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    line-height: 1.7;
+  }
+  kbd {
+    background: #3a2a1d; border: 1px solid var(--line);
+    border-radius: 4px; padding: 0 4px; font-size: 11px;
+  }
+  .status { font-size: 12px; color: var(--green); min-height: 18px; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎨 MC 皮肤编辑器</h1>
+  <span class="hint">左键在模型上画 · 拖空白处 / 右键 旋转 · 滚轮缩放</span>
+</header>
+
+<main>
+  <!-- ============ 左：工具 ============ -->
+  <aside class="tools">
+    <div class="group">
+      <div class="label">工具</div>
+      <div class="tool-grid">
+        <button data-tool="brush" class="on">🖌 画笔</button>
+        <button data-tool="eraser">🧽 橡皮</button>
+        <button data-tool="fill">🪣 油漆桶</button>
+        <button data-tool="picker">💧 吸管</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">颜色</div>
+      <input type="color" id="color" value="#f6c9a8">
+      <div class="palette" id="palette"></div>
+    </div>
+
+    <div class="group">
+      <div class="label">笔刷大小（纹理像素）</div>
+      <div class="row" id="sizes">
+        <button data-size="1" class="on">1</button>
+        <button data-size="2">2</button>
+        <button data-size="4">4</button>
+        <button data-size="8">8</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">视角</div>
+      <div class="row">
+        <button data-view="front">正面</button>
+        <button data-view="side">侧面</button>
+        <button data-view="back">背面</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button data-view="iso">斜 45°</button>
+        <button id="auto">自动旋转</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">部件聚焦（单独放大一个部件画）</div>
+      <div class="row" id="parts">
+        <button data-part="" class="on">全部</button>
+        <button data-part="head">头部</button>
+        <button data-part="body">身体</button>
+        <button data-part="armR">右臂</button>
+        <button data-part="armL">左臂</button>
+        <button data-part="legR">右腿</button>
+        <button data-part="legL">左腿</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">编辑</div>
+      <div class="row">
+        <button id="undo" title="Ctrl+Z">↶ 撤销</button>
+        <button id="redo" title="Ctrl+Y">↷ 重做</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">皮肤</div>
+      <button class="wide primary" id="export">⬇ 导出皮肤 PNG</button>
+      <div class="row" style="margin-top:6px">
+        <button id="importBtn" style="flex:1">导入…</button>
+        <button id="demo" style="flex:1">默认小人</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="clear" style="flex:1">清空</button>
+      </div>
+      <input type="file" id="file" accept="image/png" style="display:none">
+    </div>
+  </aside>
+
+  <!-- ============ 中：3D ============ -->
+  <section class="stage">
+    <canvas id="view"></canvas>
+  </section>
+
+  <!-- ============ 右：预览 ============ -->
+  <aside class="side">
+    <div class="label" style="font-size:11px;color:var(--muted);margin-bottom:6px">64×64 皮肤纹理（实时）</div>
+    <canvas id="flat" width="244" height="244"></canvas>
+
+    <div class="kv">
+      <div>当前工具：<b id="curTool">画笔</b></div>
+      <div>笔刷大小：<b id="curSize">1</b> px</div>
+      <div>当前颜色：<b id="curColor">#f6c9a8</b></div>
+    </div>
+
+    <div class="tip" style="margin-top:10px">
+      <b>怎么用：</b><br>
+      1. 左键在模型上拖动 = 画画（只在当前面内，不会漏到别的区域）<br>
+      2. 拖空白处 / 右键拖动 = 转模型<br>
+      3. 滚轮 = 缩放<br>
+      4. 点「头部/身体/…」= <b>单独放大这个部件</b>，360° 转着画背面；<kbd>E</kbd> 切换、<kbd>Esc</kbd> 退出<br>
+      5. <kbd>Ctrl+Z</kbd> 撤销 · <kbd>Ctrl+Y</kbd> 重做<br>
+      6. 画完点「导出皮肤 PNG」→ 64×64<br>
+      <br>
+      右边这个方块图就是<b>真实的皮肤文件</b>，悬停模型时橙色框会告诉你画到了哪一块。
+    </div>
+
+    <div class="status" id="status"></div>
+  </aside>
+</main>
+
+<script src="skin3d.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+
+  var PART_NAMES = { head: '头部', body: '身体', armR: '右臂', armL: '左臂', legR: '右腿', legL: '左腿' };
+
+  var editor = Skin3D.createEditor({
+    view: $('view'),
+    flat: $('flat'),
+    color: $('color'),
+    onFocus: function (name) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-part]'), function (b) {
+        b.classList.toggle('on', (b.dataset.part || '') === (name || ''));
+      });
+      $('status').textContent = name
+        ? '聚焦：' + (PART_NAMES[name] || name) + ' —— 可以 360° 转着画，按 E / Esc 回到整体'
+        : '';
+    }
+  });
+
+  // ---------- 部件聚焦 ----------
+  Array.prototype.forEach.call(document.querySelectorAll('[data-part]'), function (b) {
+    b.onclick = function () {
+      var name = b.dataset.part;
+      if (!name) editor.exitFocus();
+      else editor.focusPart(name);
+    };
+  });
+
+  // ---------- 调色板 ----------
+  var pal = $('palette');
+  Skin3D.COLORS.forEach(function (c) {
+    var d = document.createElement('div');
+    d.className = 'swatch';
+    d.style.background = c;
+    d.title = c;
+    d.onclick = function () {
+      editor.setColor(c);
+      $('color').value = c;
+      $('curColor').textContent = c;
+    };
+    pal.appendChild(d);
+  });
+
+  // ---------- 工具 ----------
+  var toolNames = { brush: '画笔', eraser: '橡皮', fill: '油漆桶', picker: '吸管' };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tool]'), function (b) {
+    b.onclick = function () {
+      document.querySelectorAll('[data-tool]').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      editor.setTool(b.dataset.tool);
+      $('curTool').textContent = toolNames[b.dataset.tool];
+    };
+  });
+
+  // ---------- 笔刷大小 ----------
+  Array.prototype.forEach.call(document.querySelectorAll('[data-size]'), function (b) {
+    b.onclick = function () {
+      document.querySelectorAll('[data-size]').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      var s = parseInt(b.dataset.size, 10);
+      editor.setSize(s);
+      $('curSize').textContent = s;
+    };
+  });
+
+  // ---------- 颜色 ----------
+  $('color').oninput = function () {
+    editor.setColor(this.value);
+    $('curColor').textContent = this.value;
+  };
+
+  // ---------- 视角 ----------
+  Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (b) {
+    b.onclick = function () {
+      var v = b.dataset.view;
+      if (v === 'front') editor.setView(0, 0.05);
+      if (v === 'back') editor.setView(Math.PI, 0.05);
+      if (v === 'side') editor.setView(Math.PI / 2, 0.05);
+      if (v === 'iso') editor.setView(-0.6, 0.25);
+    };
+  });
+
+  // ---------- 自动旋转 ----------
+  var autoOn = false;
+  $('auto').onclick = function () {
+    autoOn = !autoOn;
+    editor.setAutoRotate(autoOn);
+    this.classList.toggle('on', autoOn);
+  };
+
+  // ---------- 撤销 / 重做 ----------
+  $('undo').onclick = function () { editor.undo(); };
+  $('redo').onclick = function () { editor.redo(); };
+  document.addEventListener('keydown', function (e) {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); e.shiftKey ? editor.redo() : editor.undo(); }
+    if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); editor.redo(); }
+  });
+
+  // ---------- 导入 / 导出 / 重置 ----------
+  $('importBtn').onclick = function () { $('file').click(); };
+  $('file').onchange = function () {
+    if (this.files && this.files[0]) editor.importPNG(this.files[0]);
+    this.value = '';
+  };
+  $('export').onclick = function () {
+    editor.exportPNG('my-skin.png');
+    $('status').textContent = '已导出 my-skin.png（64×64）';
+    setTimeout(function () { $('status').textContent = ''; }, 2500);
+  };
+  $('demo').onclick = function () {
+    editor.reset();
+    $('status').textContent = '已生成默认小人';
+    setTimeout(function () { $('status').textContent = ''; }, 2000);
+  };
+  $('clear').onclick = function () {
+    if (confirm('清空整张皮肤？（可以撤销）')) { editor.clear(); }
+  };
+})();
+</script>
+</body>
+</html>
